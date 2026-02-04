@@ -1,179 +1,253 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 import urllib.parse
 import io
 
-# --- 1. BASE DE DATOS (Persistencia Total de Datos y Configuración) ---
+# =================================================================
+# 1. MOTOR DE BASE DE DATOS (ESTRUCTURA DE 50 PUNTOS)
+# =================================================================
 def conectar_db():
-    conn = sqlite3.connect('cartera_lesthy_definitiva_final.db')
+    conn = sqlite3.connect('cartera_lesthy_v88_final.db')
     c = conn.cursor()
-    # Tabla Principal: El historial completo de cada crédito
+    # Tabla Maestra: Logística, Financiera y Multimedia
     c.execute('''CREATE TABLE IF NOT EXISTS registros 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono_cliente TEXT, 
-                  monto_base REAL, interes_p REAL, total_pagar REAL, cuotas_totales INTEGER, 
-                  cuotas_pagadas INTEGER, malos_pagos INTEGER, movilidad TEXT, 
-                  proxima_fecha TEXT, reputacion TEXT)''')
-    # Tabla de Configuración: Para guardar tu número personal
-    c.execute('''CREATE TABLE IF NOT EXISTS configuracion (mi_tel TEXT)''')
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  nombre TEXT, telefono_cliente TEXT, monto_base REAL, interes_p REAL, 
+                  meses_plazo INTEGER, total_pagar REAL, cuotas_totales INTEGER, 
+                  cuotas_pagadas INTEGER, modalidad TEXT, proxima_fecha TEXT, 
+                  reputacion TEXT, cedula TEXT, ciudad TEXT, direccion TEXT, foto BLOB)''')
+    
+    # Tabla de Gastos Operativos
+    c.execute('''CREATE TABLE IF NOT EXISTS gastos 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, descripcion TEXT, monto REAL, fecha TEXT)''')
     conn.commit()
     return conn
 
 conn = conectar_db()
 
-def obtener_mi_tel():
-    cur = conn.cursor()
-    cur.execute("SELECT mi_tel FROM configuracion")
-    result = cur.fetchone()
-    return result[0] if result else "573000000000"
+# =================================================================
+# 2. INTERFAZ VIP (DISEÑO PROFESIONAL LESTHY)
+# =================================================================
+st.set_page_config(page_title="Lesthy Master V88 - COP", layout="wide")
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; color: #ffffff; }
+    div[data-testid="metric-container"] {
+        background-color: #1e2130; padding: 25px; border-radius: 20px;
+        border: 2px solid #4F46E5; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+    .cuota-info-box {
+        background: linear-gradient(145deg, #2d1b1b, #450000);
+        padding: 20px; border-radius: 15px; border: 2px solid #ff4b4b; margin-bottom: 20px;
+    }
+    .vista-previa-box {
+        background: linear-gradient(145deg, #0d1a12, #162b1e);
+        padding: 25px; border-radius: 15px; border: 2px solid #25D366; border-left: 10px solid #25D366;
+    }
+    .stButton>button {
+        width: 100% !important; border-radius: 12px !important; height: 3.5em !important; 
+        font-weight: bold !important; background-color: #4F46E5 !important; color: white !important;
+    }
+    .stButton>button:hover { background-color: #25D366 !important; color: black !important; }
+    /* Estilo para el botón de eliminar */
+    .btn-eliminar > div > button {
+        background-color: #ff4b4b !important; color: white !important;
+    }
+    .btn-eliminar > div > button:hover {
+        background-color: #990000 !important; border: 1px solid white !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN DE LA APP ---
-st.set_page_config(page_title="Lesthy_bot Master Pro", layout="wide")
-
-# Barra Lateral: Configuración de tu número y Navegación
-st.sidebar.header("⚙️ CONFIGURACIÓN MAESTRA")
-mi_numero = st.sidebar.text_input("Tu WhatsApp (Ej: 57310...)", value=obtener_mi_tel())
-if st.sidebar.button("💾 Guardar Mi Configuración"):
-    conn.cursor().execute("DELETE FROM configuracion")
-    conn.cursor().execute("INSERT INTO configuracion (mi_tel) VALUES (?)", (mi_numero,))
-    conn.commit()
-    st.sidebar.success("Número Guardado Correctamente")
-
-menu = st.sidebar.radio("NAVEGACIÓN PRINCIPAL", [
-    "🔥 Nuevo Préstamo / Vista Previa", 
-    "✅ Gestión de Cobros (Link WhatsApp)", 
-    "🚨 LISTA NEGRA (Automática)", 
-    "🏆 Historial de Ganancias",
-    "🔧 Editor Maestro y Administración"
+# =================================================================
+# 3. NAVEGACIÓN Y MENÚ
+# =================================================================
+st.sidebar.title("💎 LESTHY MASTER V88")
+st.sidebar.info("📍 Moneda: Pesos Colombianos (COP)")
+menu = st.sidebar.radio("MENÚ PRINCIPAL", [
+    "✨ BALANCE GENERAL", 
+    "⏳ GESTIÓN DE COBROS", 
+    "🔥 NUEVO PRÉSTAMO", 
+    "🛠️ EDITOR MAESTRO SMART", 
+    "💸 CONTROL DE GASTOS", 
+    "📁 BASE DE CLIENTES",
+    "✅ CLIENTES ESTRELLA ⭐",
+    "🚨 LISTA NEGRA (MOROSOS)"
 ])
 
-# --- MÓDULO A: REGISTRO CON VISTA PREVIA ---
-if menu == "🔥 Nuevo Préstamo / Vista Previa":
-    st.subheader("📝 Apertura de Nuevo Crédito")
-    col1, col2 = st.columns(2)
-    with col1:
-        n = st.text_input("👤 Nombre Completo del Cliente")
-        t_c = st.text_input("📱 WhatsApp del Cliente (Ej: 57315...)")
-        m = st.number_input("💰 Capital Prestado (COP)", min_value=0, step=10000)
-        i = st.number_input("📈 Tasa de Interés (%)", value=10.0)
-    with col2:
-        c = st.number_input("🔢 Cantidad de Cuotas", min_value=1, value=4)
-        mov = st.selectbox("🔄 Frecuencia de Pago", ["Diario", "Semanal", "Quincenal", "Mensual"])
-        f = st.date_input("📅 Fecha de Inicio de Cobro")
+# -----------------------------------------------------------------
+# MÓDULO: BALANCE GENERAL
+# -----------------------------------------------------------------
+if menu == "✨ BALANCE GENERAL":
+    st.header("✨ Balance Financiero (COP)")
+    df_p = pd.read_sql_query("SELECT * FROM registros", conn)
+    df_g = pd.read_sql_query("SELECT SUM(monto) as total FROM gastos", conn)
+    g_tot = df_g['total'][0] if df_g['total'][0] else 0
 
-    if m > 0:
-        total_p = m * (1 + (i / 100))
-        valor_c = total_p / c
-        st.markdown("---")
-        st.subheader("📊 Análisis y Vista Previa")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Capital", f"${m:,.0f}".replace(",","."))
-        m2.metric("Ganancia Estimada", f"${(total_p - m):,.0f}".replace(",","."), delta=f"{i}%")
-        m3.metric("Total a Recoger", f"${total_p:,.0f}".replace(",","."))
+    if not df_p.empty:
+        total_p = df_p['monto_base'].sum()
+        total_r = df_p['total_pagar'].sum()
+        df_p['rec'] = (df_p['total_pagar'] / df_p['cuotas_totales']) * df_p['cuotas_pagadas']
+        dinero_recuperado = df_p['rec'].sum()
         
-        st.progress(m / total_p)
-        st.info(f"💡 Resumen: {int(c)} cuotas de ${valor_c:,.0f} ({mov})".replace(",","."))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("💰 EN LA CALLE", f"$ { (total_r - dinero_recuperado):,.0f}")
+        c2.metric("🏠 RECUPERADO", f"$ {dinero_recuperado:,.0f}")
+        c3.metric("📈 UTILIDAD NETA", f"$ { (total_r - total_p - g_tot):,.0f}")
+        c4.metric("💸 GASTOS", f"$ {g_tot:,.0f}")
+        st.bar_chart(df_p.set_index('nombre')[['monto_base', 'total_pagar']])
+    else:
+        st.warning("No hay registros activos.")
 
-        st.write("**Calificación Inicial (Manual):**")
-        cb, cm = st.columns(2)
-        v_b = cb.checkbox("✅ Empezar como BUEN CLIENTE", value=False)
-        v_m = cm.checkbox("🚨 Empezar como MOROSO", value=False)
-
-        if st.button("🚀 ACTIVAR Y GUARDAR PRÉSTAMO"):
-            if v_b or v_m:
-                rep_ini = "Buen Cliente" if v_b else "Cliente Moroso"
-                conn.cursor().execute("""INSERT INTO registros 
-                    (nombre, telefono_cliente, monto_base, interes_p, total_pagar, cuotas_totales, 
-                     cuotas_pagadas, malos_pagos, movilidad, proxima_fecha, reputacion) 
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (n, t_c, m, i, total_p, c, 0, 0, mov, f.strftime('%Y-%m-%d'), rep_ini))
-                conn.commit()
-                st.success(f"✔️ ¡Préstamo de {n} activado!")
-            else: st.warning("⚠️ Debes elegir una calificación inicial.")
-
-# --- MÓDULO B: COBROS + LINK DE WHATSAPP (CORREGIDO) ---
-elif menu == "✅ Gestión de Cobros (Link WhatsApp)":
-    st.subheader("📈 Cobranza Activa")
-    df = pd.read_sql_query("SELECT * FROM registros WHERE cuotas_pagadas < cuotas_totales AND reputacion != 'Cliente Moroso'", conn)
+# -----------------------------------------------------------------
+# MÓDULO: GESTIÓN DE COBROS
+# -----------------------------------------------------------------
+elif menu == "⏳ GESTIÓN DE COBROS":
+    st.header("⏳ Gestión de Cobros")
+    busqueda = st.text_input("🔍 Buscar cliente...")
+    df_cob = pd.read_sql_query("SELECT * FROM registros WHERE cuotas_pagadas < cuotas_totales", conn)
     
-    for _, row in df.iterrows():
-        with st.expander(f"👤 {row['nombre']} | Cuota {row['cuotas_pagadas']+1} | Próximo: {row['proxima_fecha']}"):
-            if st.button(f"REGISTRAR PAGO #{row['cuotas_pagadas']+1}", key=f"btn_{row['id']}"):
-                hoy = datetime.now().date()
-                fecha_p = datetime.strptime(row['proxima_fecha'], '%Y-%m-%d').date()
-                
-                # Lógica de Malos Pagos (5 strikes = Lista Negra)
-                nuevos_malos = row['malos_pagos'] + (1 if hoy > fecha_p else 0)
-                nuevas_p = row['cuotas_pagadas'] + 1
-                
-                estado = "Buen Cliente"
-                if nuevos_malos >= 5: estado = "Cliente Moroso"
-                elif nuevas_p >= row['cuotas_totales']: estado = "Finalizado"
+    if busqueda:
+        df_cob = df_cob[df_cob['nombre'].str.contains(busqueda, case=False)]
+    
+    for _, r in df_cob.iterrows():
+        v_cuota = r['total_pagar'] / r['cuotas_totales']
+        debe_act = r['cuotas_totales'] - r['cuotas_pagadas']
+        
+        with st.expander(f"👤 {r['nombre']} | 💰 PRESTADO: ${r['monto_base']:,.0f} | 📅 Debe: {debe_act}"):
+            st.markdown(f"""<div class="cuota-info-box">
+                <b>📍 DIRECCIÓN:</b> {r['direccion']}, {r['ciudad']}<br>
+                <b>📉 CAPITAL:</b> ${r['monto_base']:,.0f} COP<br>
+                <b>🔢 CUOTAS TOTALES:</b> {r['cuotas_totales']} | <b>💵 CUOTA:</b> ${v_cuota:,.0f}
+            </div>""", unsafe_allow_html=True)
+            
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if r['foto']: st.image(r['foto'], width=250)
+            with c2:
+                n_abono = st.number_input(f"Abonar cuotas ({r['nombre']})", 1, key=f"ab_{r['id']}")
+                if st.button(f"REGISTRAR PAGO ✅", key=f"btn_{r['id']}"):
+                    conn.cursor().execute("UPDATE registros SET cuotas_pagadas=? WHERE id=?", (r['cuotas_pagadas'] + n_abono, r['id']))
+                    conn.commit(); st.rerun()
 
-                salto = {"Diario":1, "Semanal":7, "Quincenal":15, "Mensual":30}[row['movilidad']]
-                nueva_f = (fecha_p + timedelta(days=salto)).strftime('%Y-%m-%d')
+            msg = (f"✅ *RECIBO DE PAGO*\n*Cliente:* {r['nombre']}\n*Monto Prestado:* ${r['monto_base']:,.0f} COP\n"
+                   f"*Abono:* {n_abono} cuota(s)\n*Saldo Restante:* ${( (debe_act - n_abono) * v_cuota ):,.0f} COP")
+            st.link_button("📲 WHATSAPP", f"https://wa.me/{r['telefono_cliente']}?text={urllib.parse.quote(msg)}")
 
-                conn.cursor().execute("UPDATE registros SET cuotas_pagadas=?, malos_pagos=?, proxima_fecha=?, reputacion=? WHERE id=?", 
-                                      (nuevas_p, nuevos_malos, nueva_f, estado, row['id']))
-                conn.commit()
-                
-                # GENERAR ENLACE HACIA TU WHATSAPP PERSONAL (LINK DIRECTO)
-                saldo = row['total_pagar'] - ((row['total_pagar']/row['cuotas_totales']) * nuevas_p)
-                msg = f"*🧾 RECIBO LESTHY_BOT*\n\n*Cliente:* {row['nombre']}\n*WhatsApp:* {row['telefono_cliente']}\n*Cuota:* {nuevas_p}/{row['cuotas_totales']}\n*Saldo Pendiente:* ${saldo:,.0f}\n*Estado:* {estado}\n*Malos Pagos:* {nuevos_malos}/5\n\n_Reenviar al cliente._".replace(",",".")
-                link_wa = f"https://wa.me/{mi_numero}?text={urllib.parse.quote(msg)}"
-                
-                st.markdown(f'''<a href="{link_wa}" target="_blank">
-                    <button style="background-color:#25D366; color:white; border:none; padding:15px; border-radius:10px; cursor:pointer; width:100%; font-weight:bold;">
-                        📲 OBTENER RECIBO EN MI WHATSAPP
-                    </button></a>''', unsafe_allow_html=True)
-                st.balloons()
-
-# --- MÓDULO C: EDITOR MAESTRO (EDICIÓN TOTAL) ---
-elif menu == "🔧 Editor Maestro y Administración":
-    st.subheader("🛠️ Panel de Edición Maestra por ID")
-    df_full = pd.read_sql_query("SELECT * FROM registros", conn)
-    st.dataframe(df_full, use_container_width=True)
+# -----------------------------------------------------------------
+# MÓDULO: NUEVO PRÉSTAMO (INTERÉS MENSUAL COP)
+# -----------------------------------------------------------------
+elif menu == "🔥 NUEVO PRÉSTAMO":
+    st.header("🔥 Registro de Nuevo Crédito (COP)")
+    c1, c2 = st.columns(2)
+    with c1:
+        n_nom = st.text_input("Nombre"); n_ced = st.text_input("Cédula")
+        n_tel = st.text_input("WhatsApp"); n_ciu = st.text_input("Ciudad")
+        n_dir = st.text_input("Dirección"); n_mod = st.selectbox("📅 Modalidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
+        n_fec = st.date_input("🗓️ Fecha Inicio", datetime.now())
+    with c2: n_fot = st.camera_input("📸 Foto del Cliente")
     
     st.markdown("---")
-    id_edit = st.number_input("ID del Cliente para EDITAR o BORRAR:", min_value=1)
+    f1, f2, f3, f4 = st.columns(4)
+    n_cap = f1.number_input("Monto Prestado (COP)", min_value=0, step=100000)
+    n_int = f2.number_input("Interés Mensual (%)", value=10.0)
+    n_mes = f3.number_input("Plazo (Meses)", min_value=1, value=1)
+    n_cuo = f4.number_input("Cuotas Pactadas", min_value=1, value=20)
     
-    if id_edit in df_full['id'].values:
-        cl = df_full[df_full['id'] == id_edit].iloc[0]
+    if n_cap > 0:
+        total_int = (n_cap * (n_int/100)) * n_mes
+        total_pagar = n_cap + total_int
+        v_cuota = total_pagar / n_cuo
+        
+        st.markdown(f"""<div class="vista-previa-box">
+            <b>💰 CAPITAL:</b> ${n_cap:,.0f} COP<br>
+            <b>📅 PLAZO:</b> {n_mes} Mes(es) | <b>📈 INTERÉS:</b> {n_int}% mensual<br>
+            <hr>
+            <b>🔥 TOTAL A RECOGER:</b> ${total_pagar:,.0f} COP<br>
+            <b>💵 CUOTA:</b> ${v_cuota:,.0f} COP
+        </div>""", unsafe_allow_html=True)
+        
+        if st.button("🚀 ACTIVAR CRÉDITO"):
+            img_bytes = n_fot.getvalue() if n_fot else None
+            conn.cursor().execute("""INSERT INTO registros 
+                (nombre, telefono_cliente, monto_base, interes_p, meses_plazo, total_pagar, 
+                cuotas_totales, cuotas_pagadas, modalidad, proxima_fecha, reputacion, cedula, ciudad, direccion, foto) 
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", 
+                (n_nom, n_tel, n_cap, n_int, n_mes, total_pagar, n_cuo, 0, n_mod, 
+                 n_fec.strftime('%Y-%m-%d'), "Buen Cliente", n_ced, n_ciu, n_dir, img_bytes))
+            conn.commit(); st.balloons(); st.success("¡Préstamo registrado!")
+
+# -----------------------------------------------------------------
+# MÓDULO: EDITOR MAESTRO (INCLUYE BOTÓN DE ELIMINAR)
+# -----------------------------------------------------------------
+elif menu == "🛠️ EDITOR MAESTRO SMART":
+    st.header("🛠️ Editor Maestro y Eliminación")
+    df_ed = pd.read_sql_query("SELECT id, nombre, monto_base, reputacion FROM registros", conn)
+    st.dataframe(df_ed)
+    id_s = st.number_input("ID del cliente a gestionar:", min_value=1)
+    
+    if id_s in df_ed['id'].values:
+        cli = pd.read_sql_query(f"SELECT * FROM registros WHERE id={id_s}", conn).iloc[0]
+        
+        # FORMULARIO DE EDICIÓN
         with st.form("edit_form"):
-            st.write(f"📝 Editando: **{cl['nombre']}**")
-            c1, c2 = st.columns(2)
-            en = c1.text_input("Nombre", cl['nombre'])
-            et = c1.text_input("WhatsApp Cliente", cl['telefono_cliente'])
-            em = c2.number_input("Monto Base", value=float(cl['monto_base']))
-            ect = c2.number_input("Cuotas Totales", value=int(cl['cuotas_totales']))
-            ecp = c2.number_input("Cuotas Pagadas", value=int(cl['cuotas_pagadas']))
-            emp = c2.number_input("Malos Pagos", value=int(cl['malos_pagos']))
-            er = c1.selectbox("Reputación", ["Buen Cliente", "Cliente Moroso", "Finalizado"], 
-                              index=["Buen Cliente", "Cliente Moroso", "Finalizado"].index(cl['reputacion']))
+            st.subheader(f"📝 Editando a: {cli['nombre']}")
+            e1, e2 = st.columns(2)
+            u_nom = e1.text_input("Nombre", cli['nombre'])
+            u_rep = e2.selectbox("Estado", ["Buen Cliente", "Moroso", "Lista Negra"], 
+                                index=["Buen Cliente", "Moroso", "Lista Negra"].index(cli['reputacion']))
+            u_cap = e1.number_input("Monto Prestado", value=float(cli['monto_base']))
+            u_int = e2.number_input("Interés Mensual %", value=float(cli['interes_p']))
+            u_pactadas = e1.number_input("Cuotas Pactadas", value=int(cli['cuotas_totales']))
+            u_debe = e2.number_input("Cuotas que DEBE HOY", value=int(cli['cuotas_totales'] - cli['cuotas_pagadas']))
+            u_mes = e1.number_input("Meses Plazo", value=int(cli['meses_plazo']))
+            u_dir = e2.text_input("Dirección", cli['direccion'])
             
             if st.form_submit_button("💾 GUARDAR CAMBIOS"):
-                conn.cursor().execute("""UPDATE registros SET nombre=?, telefono_cliente=?, monto_base=?, 
-                    cuotas_totales=?, cuotas_pagadas=?, malos_pagos=?, reputacion=? WHERE id=?""", 
-                    (en, et, em, ect, ecp, emp, er, id_edit))
+                n_pagadas = u_pactadas - u_debe
+                n_total = u_cap + (u_cap * (u_int/100) * u_mes)
+                conn.cursor().execute("""UPDATE registros SET 
+                    nombre=?, reputacion=?, monto_base=?, interes_p=?, meses_plazo=?, 
+                    total_pagar=?, cuotas_pagadas=?, cuotas_totales=?, direccion=? WHERE id=?""", 
+                    (u_nom, u_rep, u_cap, u_int, u_mes, n_total, n_pagadas, u_pactadas, u_dir, id_s))
+                conn.commit(); st.success("¡Registro Actualizado!"); st.rerun()
+        
+        st.markdown("---")
+        # SECCIÓN DE ELIMINACIÓN
+        st.subheader("🚨 Zona de Peligro")
+        st.warning(f"¿Estás seguro de que deseas eliminar el préstamo de **{cli['nombre']}**? Esta acción no se puede deshacer.")
+        
+        col_del = st.columns([1, 4])
+        with col_del[0]:
+            st.markdown('<div class="btn-eliminar">', unsafe_allow_html=True)
+            if st.button(f"BORRAR PRÉSTAMO #{id_s}"):
+                conn.cursor().execute("DELETE FROM registros WHERE id=?", (id_s,))
                 conn.commit()
-                st.success("✔️ Registro actualizado.")
+                st.error(f"Préstamo de {cli['nombre']} eliminado correctamente.")
                 st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.button("🗑️ ELIMINAR CLIENTE PERMANENTEMENTE"):
-        conn.cursor().execute("DELETE FROM registros WHERE id=?", (id_edit,))
-        conn.commit()
-        st.rerun()
+# -----------------------------------------------------------------
+# OTROS MÓDULOS (GASTOS, MOROSOS, BASE)
+# -----------------------------------------------------------------
+elif menu == "💸 CONTROL DE GASTOS":
+    st.header("💸 Gastos Operativos")
+    g_d = st.text_input("Descripción"); g_m = st.number_input("Monto COP", min_value=0)
+    if st.button("Guardar Gasto"):
+        conn.cursor().execute("INSERT INTO gastos (descripcion, monto, fecha) VALUES (?,?,?)", (g_d, g_m, datetime.now().strftime('%Y-%m-%d')))
+        conn.commit(); st.success("Gasto guardado.")
 
-# --- MÓDULOS DE ANÁLISIS ---
-elif menu == "🚨 LISTA NEGRA (Automática)":
-    st.subheader("🔴 Lista Negra (+5 Malos Pagos)")
-    st.table(pd.read_sql_query("SELECT * FROM registros WHERE reputacion = 'Cliente Moroso'", conn))
+elif menu == "🚨 LISTA NEGRA (MOROSOS)":
+    st.header("🚨 Lista Negra")
+    st.table(pd.read_sql_query("SELECT nombre, ciudad, direccion, reputacion FROM registros WHERE reputacion != 'Buen Cliente'", conn))
 
-elif menu == "🏆 Historial de Ganancias":
-    st.subheader("🏁 Resultados de Negocios Finalizados")
-    df_f = pd.read_sql_query("SELECT * FROM registros WHERE reputacion = 'Finalizado'", conn)
-    if not df_f.empty:
-        neto = df_f['total_pagar'].sum() - df_f['monto_base'].sum()
-        st.metric("Ganancia Neta Total", f"${neto:,.0f}".replace(",","."), delta="💰")
-        st.dataframe(df_f)
-    else: st.info("No hay préstamos finalizados aún.")
+elif menu == "✅ CLIENTES ESTRELLA ⭐":
+    st.header("✅ Clientes VIP")
+    st.table(pd.read_sql_query("SELECT nombre, ciudad, reputacion FROM registros WHERE reputacion = 'Buen Cliente'", conn))
+
+elif menu == "📁 BASE DE CLIENTES":
+    st.header("📁 Base de Datos Maestra")
+    st.dataframe(pd.read_sql_query("SELECT id, nombre, cedula, telefono_cliente, ciudad, direccion FROM registros", conn))
+
