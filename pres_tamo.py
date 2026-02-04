@@ -2,59 +2,67 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import io
+import requests
 
-# --- 1. INICIALIZAR BASE DE DATOS TEMPORAL ---
+# --- CONFIGURACIÓN TELEGRAM ---
+def notificar_telegram(mensaje):
+    token = "8553805048:AAFNtIznh3boHALXYxcMDFmFnnQkyTX4ado"
+    chat_id = "1703425585"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try: requests.post(url, data={"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"})
+    except: pass
+
+# --- BASE DE DATOS ---
 if 'db_clientes' not in st.session_state:
     st.session_state.db_clientes = []
 
-# --- 2. INTERFAZ DE REGISTRO ---
-st.title("🏦 Administrador de Cartera Lesthy_bot")
+st.title("🛡️ Gestión de Cartera Lesthy_bot")
 
-with st.form("registro_con_archivo"):
+# --- REGISTRO ---
+with st.form("registro_pro"):
     col1, col2 = st.columns(2)
     with col1:
         nombre = st.text_input("Nombre del Cliente")
-        monto = st.number_input("Monto Prestado (COP)", min_value=0, step=10000)
-        interes = st.number_input("Interés (%)", min_value=0.0, value=10.0)
+        monto = st.number_input("Monto (COP)", min_value=0, step=10000)
+        interes = st.number_input("Interés (%)", value=10.0)
     with col2:
-        cuotas = st.number_input("Cuotas", min_value=1, value=1)
-        frecuencia = st.selectbox("Movilidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
-        f_prestamo = st.date_input("Fecha Préstamo", value=datetime.now())
+        cuotas = st.number_input("Cuotas", min_value=1, value=4)
+        movilidad = st.selectbox("Movilidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
+        f_inicio = st.date_input("Fecha Primer Cobro")
 
-    btn_guardar = st.form_submit_button("💾 Guardar Cliente y Generar Archivo")
+    if st.form_submit_button("💾 Guardar y Generar Calendario"):
+        if monto > 0:
+            total = monto * (1 + (interes/100))
+            dias = {"Diario": 1, "Semanal": 7, "Quincenal": 15, "Mensual": 30}
+            
+            # Generar fechas automáticamente para Excel y Sistema
+            fechas_cobro = [(f_inicio + timedelta(days=dias[movilidad] * i)).strftime('%d/%m/%Y') for i in range(int(cuotas))]
+            
+            nuevo = {
+                "Cliente": nombre,
+                "Monto Base": f"${monto:,.0f}".replace(",", "."),
+                "Total con Interés": f"${total:,.0f}".replace(",", "."),
+                "Movilidad": movilidad,
+                "Fechas de Cobro": ", ".join(fechas_cobro)
+            }
+            st.session_state.db_clientes.append(nuevo)
+            st.success("✅ Cliente guardado y calendario generado.")
 
-# --- 3. LÓGICA DE GUARDADO Y TABLA ---
-if btn_guardar and monto > 0:
-    total = monto * (1 + (interes / 100))
-    # Guardar en la base de datos interna
-    nuevo_registro = {
-        "Cliente": nombre,
-        "Fecha Préstamo": f_prestamo.strftime('%d/%m/%Y'),
-        "Monto Base": f"${monto:,.0f}".replace(",", "."),
-        "Interés (%)": f"{interes}%",
-        "Total a Cobrar": f"${total:,.0f}".replace(",", "."),
-        "Cuotas": cuotas,
-        "Movilidad": frecuencia
-    }
-    st.session_state.db_clientes.append(nuevo_registro)
-    st.success(f"✅ Cliente {nombre} guardado en el sistema.")
-
-# --- 4. CUADRO APARTE DE CLIENTES Y DESCARGA ---
+# --- CUADRO Y EXCEL ---
 if st.session_state.db_clientes:
-    st.subheader("📋 Cuadro General de Clientes Registrados")
-    df_final = pd.DataFrame(st.session_state.db_clientes)
-    
-    # Mostrar la tabla en la app
-    st.dataframe(df_final, use_container_width=True)
+    st.subheader("📋 Cuadro General")
+    df = pd.DataFrame(st.session_state.db_clientes)
+    st.dataframe(df)
 
-    # Crear el archivo Excel en memoria para descargar
+    # Botón de Excel (Ahora sin error)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df_final.to_excel(writer, index=False, sheet_name='Cobranzas')
+        df.to_excel(writer, index=False)
     
-    st.download_button(
-        label="📥 Descargar Reporte de Clientes (Excel)",
-        data=buffer.getvalue(),
-        file_name=f"Reporte_Cobros_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
-        mime="application/vnd.ms-excel"
-    )
+    st.download_button("📥 Descargar Excel", buffer.getvalue(), "Cobros_Lesthy.xlsx")
+
+    # BOTÓN DE BORRADO CON AVISO A TELEGRAM
+    if st.button("🗑️ Borrar toda la información"):
+        st.session_state.db_clientes = []
+        notificar_telegram("⚠️ *AVISO:* La base de datos de clientes ha sido borrada por el usuario.")
+        st.rerun()
