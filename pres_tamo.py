@@ -4,83 +4,103 @@ import sqlite3
 from datetime import datetime, timedelta
 import io
 
-# --- 1. CONEXIÓN PERMANENTE ---
-def conectar():
-    conn = sqlite3.connect('cartera_v3.db')
+# --- 1. BASE DE DATOS PERSISTENTE ---
+def conectar_db():
+    conn = sqlite3.connect('cartera_lesthy.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS prestamos 
+    c.execute('''CREATE TABLE IF NOT EXISTS registros 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, monto REAL, 
-                  interes REAL, cuotas INTEGER, movilidad TEXT, fecha_inicio TEXT, 
-                  estado TEXT)''')
+                  total_pagar REAL, cuotas INTEGER, movilidad TEXT, 
+                  inicio TEXT, reputacion TEXT)''')
     conn.commit()
     return conn
 
-# --- 2. INTERFAZ ---
-st.set_page_config(page_title="Control Maestro Lesthy_bot", layout="wide")
+# --- 2. CONFIGURACIÓN DE INTERFAZ ---
+st.set_page_config(page_title="Gestión de Cartera Lesthy", layout="wide")
 st.title("⚖️ Panel de Control Total de Préstamos")
 
+conn = conectar_db()
 menu = st.sidebar.radio("Navegación", ["Registrar Nuevo", "Administrar / Editar / Borrar"])
-conn = conectar()
 
-# --- MÓDULO A: REGISTRO ---
+# --- MÓDULO A: REGISTRAR NUEVO CON VISTA PREVIA ---
 if menu == "Registrar Nuevo":
-    with st.form("nuevo"):
-        col1, col2 = st.columns(2)
-        with col1:
-            n = st.text_input("Nombre")
-            m = st.number_input("Monto (COP)", step=10000)
-            i = st.number_input("Interés %", value=10.0)
-        with col2:
-            c = st.number_input("Cuotas", min_value=1)
-            mov = st.selectbox("Movilidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
-            f = st.date_input("Fecha Inicio")
-        
-        if st.form_submit_button("Guardar Préstamo"):
-            cur = conn.cursor()
-            cur.execute("INSERT INTO prestamos (nombre, monto, interes, cuotas, movilidad, fecha_inicio, estado) VALUES (?,?,?,?,?,?,?)",
-                        (n, m, i, c, mov, f.strftime('%Y-%m-%d'), "Buen Cliente"))
-            conn.commit()
-            st.success(f"✅ Préstamo para {n} guardado con éxito.")
+    st.subheader("📝 Ingreso de Datos")
+    
+    with st.container():
+        c1, c2 = st.columns(2)
+        with c1:
+            nombre = st.text_input("Nombre del cliente")
+            monto = st.number_input("Monto (COP)", min_value=0, step=10000, value=0)
+            interes = st.number_input("Interés (%)", value=10.0)
+        with c2:
+            cuotas = st.number_input("Cuotas", min_value=1, value=1)
+            movilidad = st.selectbox("Movilidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
+            f_inicio = st.date_input("Fecha Inicio", value=datetime.now())
 
-# --- MÓDULO B: ADMINISTRACIÓN TOTAL ---
+    # --- VISTA PREVIA DINÁMICA (Cálculos antes de guardar) ---
+    if monto > 0:
+        total_p = monto * (1 + (interes / 100))
+        valor_c = total_p / cuotas
+        
+        st.markdown("---")
+        st.subheader("📊 Análisis de Retorno de Inversión") # Estilo de tu imagen
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Capital a Recuperar", f"${monto:,.0f}".replace(",", "."))
+        m2.metric("Intereses Ganados", f"${(total_p - monto):,.0f}".replace(",", "."), delta=f"{interes}%")
+        m3.metric("TOTAL A COBRAR", f"${total_p:,.0f}".replace(",", "."))
+
+        # Barra de Composición Protegida
+        st.write("**Composición del Cobro Total (Capital vs Interés):**")
+        progreso = monto / total_p
+        st.progress(progreso)
+        
+        st.info(f"💡 El cliente pagará {int(cuotas)} cuotas de ${valor_c:,.0f} ({movilidad})".replace(",", "."))
+
+        # Checkboxes de Reputación
+        st.write("**Calificación del Cliente:**")
+        col_bueno, col_malo = st.columns(2)
+        buen_cliente = col_bueno.checkbox("✅ Buen Cliente", value=True)
+        moroso = col_malo.checkbox("🚨 Cliente Moroso")
+        
+        estado = "Buen Cliente" if buen_cliente and not moroso else "Cliente Moroso"
+
+        if st.button("💾 Guardar Préstamo Permanentemente"):
+            cur = conn.cursor()
+            cur.execute("""INSERT INTO registros (nombre, monto, total_pagar, cuotas, movilidad, inicio, reputacion) 
+                           VALUES (?,?,?,?,?,?,?)""",
+                        (nombre, monto, total_p, cuotas, movilidad, f_inicio.strftime('%Y-%m-%d'), estado))
+            conn.commit()
+            st.success(f"✔️ Cliente {nombre} guardado como {estado}")
+
+# --- MÓDULO B: ADMINISTRAR / EDITAR / BORRAR POR ID ---
 else:
-    df = pd.read_sql_query("SELECT * FROM prestamos", conn)
+    st.subheader("📋 Lista General de Clientes")
+    df = pd.read_sql_query("SELECT * FROM registros", conn)
+    
     if not df.empty:
-        st.subheader("📋 Lista General de Clientes")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True) # Como en tu imagen
 
         st.markdown("---")
         st.subheader("🔧 Modo Editor (Usa el ID)")
+        id_sel = st.number_input("Escribe el ID del préstamo para modificar:", min_value=int(df['id'].min()))
         
-        id_edit = st.number_input("Escribe el ID del préstamo para modificar:", min_value=int(df['id'].min()), max_value=int(df['id'].max()))
+        col_edit, col_del = st.columns(2)
         
-        # Cargar datos actuales del ID seleccionado
-        datos_id = df[df['id'] == id_edit].iloc[0]
-
-        with st.expander(f"⚙️ Editar Préstamo #{id_edit} - {datos_id['nombre']}"):
-            col_e1, col_e2 = st.columns(2)
-            with col_e1:
-                nuevo_n = st.text_input("Editar Nombre", value=datos_id['nombre'])
-                nuevo_m = st.number_input("Editar Monto", value=float(datos_id['monto']))
-                nuevo_est = st.selectbox("Tipo de Cliente", ["Buen Cliente", "Cliente Moroso", "En Seguimiento"], index=0)
-            with col_e2:
-                nueva_c = st.number_input("Editar Cuotas", value=int(datos_id['cuotas']))
-                nueva_f = st.date_input("Editar Fecha de Inicio", value=datetime.strptime(datos_id['fecha_inicio'], '%Y-%m-%d'))
+        if col_edit.button("📝 Actualizar Información"):
+            st.info(f"Para editar el ID {id_sel}, cambia los valores en el registro y vuelve a guardar.")
             
-            c1, c2 = st.columns(2)
-            if c1.button("💾 GUARDAR CAMBIOS"):
-                cur = conn.cursor()
-                cur.execute("""UPDATE prestamos SET nombre=?, monto=?, cuotas=?, fecha_inicio=?, estado=? 
-                               WHERE id=?""", (nuevo_n, nuevo_m, nueva_c, nueva_f.strftime('%Y-%m-%d'), nuevo_est, id_edit))
-                conn.commit()
-                st.success("🔄 Información actualizada correctamente.")
-                st.rerun()
+        if col_del.button("🗑️ Borrar Préstamo del ID Seleccionado"):
+            cur = conn.cursor()
+            cur.execute("DELETE FROM registros WHERE id=?", (id_sel,))
+            conn.commit()
+            st.warning(f"Préstamo #{id_sel} eliminado.")
+            st.rerun()
 
-            if c2.button("🗑️ BORRAR PRÉSTAMO PERMANENTE"):
-                cur = conn.cursor()
-                cur.execute("DELETE FROM prestamos WHERE id=?", (id_edit,))
-                conn.commit()
-                st.warning(f"Préstamo #{id_edit} eliminado del sistema.")
-                st.rerun()
+        # Botón Excel corregido
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False)
+        st.download_button("📥 Descargar Historial Completo", buffer.getvalue(), "Cartera_Lesthy.xlsx")
     else:
-        st.info("No hay préstamos registrados.")
+        st.info("Aún no hay clientes registrados.")
