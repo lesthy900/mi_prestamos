@@ -1,86 +1,60 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import requests
+import io
 
-# --- 1. FUNCIÓN DE ALERTA A TELEGRAM (Formato COP) ---
-def enviar_alerta_cobro_cop(cliente, cuota_n, total_cuotas, monto, f_emision, f_vencimiento):
-    token = "8553805048:AAFNtIznh3boHALXYxcMDFmFnnQkyTX4ado"
-    chat_id = "1703425585"
-    
-    # Formateamos el monto con puntos de miles para Colombia
-    monto_formateado = f"${monto:,.0f}".replace(",", ".")
-    
-    mensaje = (
-        f"🇨🇴 *COBRO PENDIENTE (COP)*\n\n"
-        f"👤 *Cliente:* {cliente}\n"
-        f"📅 *Préstamo:* {f_emision}\n"
-        f"🔢 *Cuota:* {cuota_n} de {total_cuotas}\n"
-        f"💵 *VALOR A COBRAR:* {monto_formateado}\n\n"
-        f"📅 *Vence hoy:* {f_vencimiento}\n"
-        f"⚡ _Acción: Realizar el cobro del día._"
-    )
-    
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try: requests.post(url, data={"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"})
-    except: pass
+# --- 1. INICIALIZAR BASE DE DATOS TEMPORAL ---
+if 'db_clientes' not in st.session_state:
+    st.session_state.db_clientes = []
 
-# --- 2. INTERFAZ ---
-st.title("🛡️ Sistema de Cobranzas Lesthy_bot (COP)")
+# --- 2. INTERFAZ DE REGISTRO ---
+st.title("🏦 Administrador de Cartera Lesthy_bot")
 
-with st.form("registro_cop"):
+with st.form("registro_con_archivo"):
     col1, col2 = st.columns(2)
     with col1:
         nombre = st.text_input("Nombre del Cliente")
-        monto_prestado = st.number_input("Capital Prestado (Pesos COP)", min_value=0, step=10000)
-        interes_p = st.number_input("Interés Total (%)", min_value=0.0, value=10.0)
-        fecha_prestamo = st.date_input("Fecha del préstamo", value=datetime.now())
+        monto = st.number_input("Monto Prestado (COP)", min_value=0, step=10000)
+        interes = st.number_input("Interés (%)", min_value=0.0, value=10.0)
     with col2:
-        num_cuotas = st.number_input("Número de Cuotas", min_value=1, value=4)
-        frecuencia = st.selectbox("Movilidad de Pago", ["Diario", "Semanal", "Quincenal", "Mensual"])
-        fecha_primer_pago = st.date_input("Fecha del primer cobro")
+        cuotas = st.number_input("Cuotas", min_value=1, value=1)
+        frecuencia = st.selectbox("Movilidad", ["Diario", "Semanal", "Quincenal", "Mensual"])
+        f_prestamo = st.date_input("Fecha Préstamo", value=datetime.now())
+
+    btn_guardar = st.form_submit_button("💾 Guardar Cliente y Generar Archivo")
+
+# --- 3. LÓGICA DE GUARDADO Y TABLA ---
+if btn_guardar and monto > 0:
+    total = monto * (1 + (interes / 100))
+    # Guardar en la base de datos interna
+    nuevo_registro = {
+        "Cliente": nombre,
+        "Fecha Préstamo": f_prestamo.strftime('%d/%m/%Y'),
+        "Monto Base": f"${monto:,.0f}".replace(",", "."),
+        "Interés (%)": f"{interes}%",
+        "Total a Cobrar": f"${total:,.0f}".replace(",", "."),
+        "Cuotas": cuotas,
+        "Movilidad": frecuencia
+    }
+    st.session_state.db_clientes.append(nuevo_registro)
+    st.success(f"✅ Cliente {nombre} guardado en el sistema.")
+
+# --- 4. CUADRO APARTE DE CLIENTES Y DESCARGA ---
+if st.session_state.db_clientes:
+    st.subheader("📋 Cuadro General de Clientes Registrados")
+    df_final = pd.DataFrame(st.session_state.db_clientes)
     
-    btn_registro = st.form_submit_button("Registrar y Calcular")
+    # Mostrar la tabla en la app
+    st.dataframe(df_final, use_container_width=True)
 
-# --- 3. LÓGICA CON CORRECCIÓN DE ERROR Y FORMATO ---
-if btn_registro:
-    intereses_generados = monto_prestado * (interes_p / 100)
-    total_a_pagar = monto_prestado + intereses_generados
+    # Crear el archivo Excel en memoria para descargar
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_final.to_excel(writer, index=False, sheet_name='Cobranzas')
     
-    # Validación para evitar ZeroDivisionError
-    if total_a_pagar > 0:
-        cuota_valor = total_a_pagar / num_cuotas
-
-        st.subheader("📊 Análisis de Retorno de Inversión")
-        
-        col_a, col_b, col_c = st.columns(3)
-        # Formato de moneda colombiana
-        col_a.metric("Capital", f"${monto_prestado:,.0f}".replace(",", "."))
-        col_b.metric("Intereses", f"${intereses_generados:,.0f}".replace(",", "."), delta=f"{interes_p}%")
-        col_c.metric("TOTAL COP", f"${total_a_pagar:,.0f}".replace(",", "."))
-
-        # Barra visual protegida contra error
-        progreso_capital = (monto_prestado / total_a_pagar)
-        st.progress(progreso_capital)
-        st.caption(f"🔵 Capital: {(progreso_capital*100):.1f}% | 🟢 Ganancia: {(100 - progreso_capital*100):.1f}%")
-
-        # Cronograma
-        dias_map = {"Diario": 1, "Semanal": 7, "Quincenal": 15, "Mensual": 30}
-        salto = dias_map[frecuencia]
-        
-        cronograma = []
-        for i in range(1, int(num_cuotas) + 1):
-            vencimiento = fecha_primer_pago + timedelta(days=salto * (i-1))
-            cronograma.append({
-                "Cuota": i,
-                "Fecha": vencimiento.strftime('%d/%m/%Y'),
-                "Monto COP": f"${cuota_valor:,.0f}".replace(",", ".")
-            })
-            
-            # Alerta hoy
-            if vencimiento == datetime.now().date():
-                enviar_alerta_cobro_cop(nombre, i, num_cuotas, cuota_valor, fecha_prestamo.strftime('%d/%m/%Y'), vencimiento.strftime('%d/%m/%Y'))
-
-        st.table(pd.DataFrame(cronograma))
-    else:
-        st.error("❌ El monto debe ser mayor a 0 para realizar los cálculos.")
+    st.download_button(
+        label="📥 Descargar Reporte de Clientes (Excel)",
+        data=buffer.getvalue(),
+        file_name=f"Reporte_Cobros_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
+        mime="application/vnd.ms-excel"
+    )
